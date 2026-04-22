@@ -1,0 +1,7 @@
+all: yash
+
+yash: yash.c
+	gcc -o yash yash.c
+
+clean:
+	rm -f yash
