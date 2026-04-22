@@ -406,46 +406,47 @@ void printList() {
         curr = curr->next;
     }
 
-    // curr = head;
-    // int isFirst = TRUE;
-    // while (curr) {
-    //     if (isFirst == TRUE) {
-    //         if (curr->background == TRUE)
-    //             printf("[%d]+   %s       %s &\n", curr->jobID, curr->status, curr->name);
-    //         else
-    //             printf("[%d]+   %s       %s \n", curr->jobID, curr->status, curr->name);
-    //         isFirst = FALSE;
-    //     } else {
-    //         if (curr->background == TRUE)
-    //             printf("[%d]-   %s       %s &\n", curr->jobID, curr->status, curr->name);
-    //         else
-    //             printf("[%d]-   %s       %s \n", curr->jobID, curr->status, curr->name);
-    //     }
-    // }
-
     curr = head;
-    struct Job *stack[100];
-    int top = -1;
-
-    while (curr != NULL) {
-        stack[++top] = curr;
+    int isFirst = TRUE;
+    while (curr) {
+        if (isFirst == TRUE) {
+            if (curr->background == TRUE)
+                printf("[%d]+   %s       %s &\n", curr->jobID, curr->status, curr->name);
+            else
+                printf("[%d]+   %s       %s \n", curr->jobID, curr->status, curr->name);
+            isFirst = FALSE;
+        } else {
+            if (curr->background == TRUE)
+                printf("[%d]-   %s       %s &\n", curr->jobID, curr->status, curr->name);
+            else
+                printf("[%d]-   %s       %s \n", curr->jobID, curr->status, curr->name);
+        }
         curr = curr->next;
     }
 
-    while (top >= 0) {
-        struct Job *job = stack[top--];
-        if (jid_plus == job->jobID) {
-            if (job->background == TRUE)
-                printf("[%d]+   %s       %s &\n", job->jobID, job->status, job->name);
-            else
-                printf("[%d]+   %s       %s \n", job->jobID, job->status, job->name);
-        } else {
-            if (job->background == TRUE)
-                printf("[%d]-   %s       %s &\n", job->jobID, job->status, job->name);
-            else
-                printf("[%d]-   %s       %s \n", job->jobID, job->status, job->name);
-        }
-    }
+    // curr = head;
+    // struct Job *stack[100];
+    // int top = -1;
+
+    // while (curr != NULL) {
+    //     stack[++top] = curr;
+    //     curr = curr->next;
+    // }
+
+    // while (top >= 0) {
+    //     struct Job *job = stack[top--];
+    //     if (jid_plus == job->jobID) {
+    //         if (job->background == TRUE)
+    //             printf("[%d]+   %s       %s &\n", job->jobID, job->status, job->name);
+    //         else
+    //             printf("[%d]+   %s       %s \n", job->jobID, job->status, job->name);
+    //     } else {
+    //         if (job->background == TRUE)
+    //             printf("[%d]-   %s       %s &\n", job->jobID, job->status, job->name);
+    //         else
+    //             printf("[%d]-   %s       %s \n", job->jobID, job->status, job->name);
+    //     }
+    // }
 }
 void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     int max_jid = 1;
