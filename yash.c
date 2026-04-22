@@ -450,9 +450,12 @@ void printList() {
 void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     int max_jid = 1;
     struct Job *p = head;
+    struct Job *prev = NULL;
     while (p != NULL) {
         if (p->jobID >= max_jid)
             max_jid = p->jobID + 1;
+        
+        prev = p;
         p = p->next;
     }
     /* Creating node */
@@ -463,9 +466,14 @@ void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     curr->status = strdup(STAT);
     curr->background = BACK;
 
-    /* Set old head to new node */
-   curr->next = head;
-   head = curr;
+    if (head == NULL) {
+        /* Set old head to new node */
+        curr->next = head;
+        head = curr;
+    } else {
+        /* add to end of list */
+        prev->next = curr;
+    }
 }
 void removenode(pid_t PID) {
    struct Job *temp = head, *prev;
