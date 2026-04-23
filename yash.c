@@ -452,6 +452,7 @@ void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     /* Set old head to new node */
     curr->next = head;
     head = curr;
+
 }
 void removenode(pid_t PID) {
    struct Job *temp = head, *prev;
