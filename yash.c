@@ -82,7 +82,7 @@ int main(void) {
             token = strtok_r(NULL, delim, &cmd);
             argc++;
         }
-        argv = malloc(sizeof(char *) * argc);
+        argv = malloc(sizeof(char *) * (argc+1));
         int stop_token = argc, piped_stop_token = argc;
         token = strtok_r(cmd_cpy, delim, &cmd_cpy);
         while (token) {
@@ -131,7 +131,6 @@ int main(void) {
             
             argv[i] = token;
             token = strtok_r(NULL, delim, &cmd_cpy);
-            // printf("%s \n", argv[i]);
             i++;
         }
         argv[i] = NULL;
@@ -394,6 +393,9 @@ void printList() {
     int ishead = TRUE;
     int jid_plus;
 
+    struct Job *stack[256];
+    int top = -1;
+
     /* Removing done jobs first */
     while (curr != NULL) {
         if (strcmp(curr->status, DONE) == 0) {
@@ -406,34 +408,37 @@ void printList() {
         curr = curr->next;
     }
 
+    /* Redoing iteration because weird stuff happens while adding it in previous loop */
     curr = head;
-    int isFirst = TRUE;
+    int firstId = -1;
     while (curr) {
-        if (isFirst == TRUE) {
-            if (curr->background == TRUE)
-                printf("[%d]+   %s       %s &\n", curr->jobID, curr->status, curr->name);
-            else
-                printf("[%d]+   %s       %s \n", curr->jobID, curr->status, curr->name);
-            isFirst = FALSE;
-        } else {
-            if (curr->background == TRUE)
-                printf("[%d]-   %s       %s &\n", curr->jobID, curr->status, curr->name);
-            else
-                printf("[%d]-   %s       %s \n", curr->jobID, curr->status, curr->name);
-        }
+        stack[++top] = curr;
+        if (firstId == -1)
+            firstId = curr->jobID;
         curr = curr->next;
     }
 
+    while (top >= 0) {
+        struct Job *job = stack[top--];
+        if (job->jobID == firstId) {
+            if (job->background == TRUE)
+                printf("[%d]+   %s       %s &\n", job->jobID, job->status, job->name);
+            else
+                printf("[%d]+   %s       %s \n", job->jobID, job->status, job->name);
+        } else {
+            if (job->background == TRUE)
+                printf("[%d]-   %s       %s &\n", job->jobID, job->status, job->name);
+            else
+                printf("[%d]-   %s       %s \n", job->jobID, job->status, job->name);
+        }
+    }
 }
 void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     int max_jid = 1;
     struct Job *p = head;
-    struct Job *prev = NULL;
     while (p != NULL) {
         if (p->jobID >= max_jid)
             max_jid = p->jobID + 1;
-        
-        prev = p;
         p = p->next;
     }
     /* Creating node */
@@ -447,7 +452,6 @@ void add(char *NAME, pid_t PID, char *STAT, int BACK) {
     /* Set old head to new node */
     curr->next = head;
     head = curr;
-
 }
 void removenode(pid_t PID) {
    struct Job *temp = head, *prev;
