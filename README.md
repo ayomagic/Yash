@@ -1,59 +1,461 @@
-Yash — Yet Another Shell
-Overview
-yash is a small Unix-style shell written in C for the EE461S Operating Systems shell project. Its purpose is to demonstrate the core mechanics behind a command-line interpreter: reading user input, parsing commands, creating child processes, handling file redirection, supporting a single pipeline, and implementing basic job control through jobs, fg, and bg. The assignment scope requires support for redirection, one pipe at most, signal handling, background jobs, and a #  prompt, and this implementation is built around that feature set.  
-Rather than trying to behave like a full production shell such as bash, this project focuses on the OS concepts underneath a shell: fork, execvp, waitpid, dup2, process groups, terminal control, and signal-driven job management. The code is therefore best understood as an educational shell that implements the major features required by the project while leaving room for future expansion into a more complete terminal.  
-Supported Functionality
-The current implementation supports execution of external commands through execvp, which means commands are searched through the system PATH and executed as child processes. It also supports input, output, and error redirection using <, >, and 2>, background execution with &, a single pipeline using |, and the built-in job-control commands jobs, fg, and bg. The shell installs handlers for SIGCHLD, SIGINT, and SIGTSTP, and uses process groups plus tcsetpgrp to manage foreground execution and job suspension/resumption.  
-The prompt is printed as #  before each command is read, matching the assignment requirement. The code uses getline to read each line, tokenizes input with strtok_r, and tracks special tokens such as <, >, 2>, |, and & during parsing.  
-High-Level Design
-The shell runs inside an infinite loop in main. At the start of each iteration, it resets parsing flags, prints the prompt, reads one line of input, tokenizes the command, and decides whether the command is a built-in operation (jobs, fg, or bg) or an external command that should be executed in a child process. This loop is the central control flow of the shell. 
-The parser performs two passes over the input. The first pass counts tokens so memory for argv can be allocated. The second pass records all tokens while also identifying the positions of redirection operators, the optional background marker, and the boundary between the left and right sides of a pipeline. From that parsed state, the code builds two execution arrays: one for the main command and, when needed, one for the second stage of the pipeline. 
-Command Execution
-For a normal command with no pipe, the shell calls fork(). In the child process, it creates a new process group with setpgid, applies any requested redirections using open, dup2, and close, and finally invokes execvp with the prepared argument vector. In the parent, the shell either waits for the child if it is a foreground job or immediately records it in the jobs list if it is a background job. 
-Foreground jobs temporarily receive terminal control through tcsetpgrp, allowing signals such as Ctrl-C and Ctrl-Z to affect the child job rather than killing or stopping the shell itself. Once the foreground job exits or stops, terminal control is returned to the shell. This mirrors the core job-control behavior expected in the project spec.  
-Redirection
-File redirection is handled in the child process just before execvp. The parser records the token index immediately after <, >, or 2>, and the child later uses that filename to open the requested file descriptor. Standard input is replaced with the input file for <, standard output is redirected for >, and standard error is redirected for 2>. This is done with dup2, which makes the command behave as though it were reading from or writing directly to those files.  
-Single-Pipe Support
-The current code supports one pipeline by creating exactly one pipefd[2] pair and forking two child processes: a left-side process and a right-side process. The left child redirects its standard output to the write end of the pipe, and the right child redirects its standard input to the read end. Both children are placed into the same process group so that they can be managed together as one pipeline job. This matches the project requirement that only one pipe must be supported.  
-Because the design stores only one pipe position (pipe_i), one pipe descriptor array (pipefd), and one secondary command array (piped), it is intentionally limited to two commands total. That design keeps the implementation manageable for the lab but is also the main reason the shell cannot yet support pipelines of three or more commands. 
-Job Control Design
-Background and stopped jobs are stored in a singly linked list of Job nodes. Each node stores the original command name, a shell-assigned job number, the process ID, the current status string (Running, Stopped, or Done), whether the job is backgrounded, and a pointer to the next job. The helper functions add, removenode, updatenode, found, and printList provide the basic job table operations. 
-New jobs are inserted at the head of the list, which makes the most recent job easy to find. The jobs command walks the list, prints completed jobs as Done, removes them from the active list, and then prints the remaining jobs in display order using a temporary stack. The bg command finds a stopped job, marks it as a background job, sends SIGCONT, and returns immediately. The fg command brings the most recent runnable job to the foreground, restores terminal control to that job, and waits for it to complete or stop again.  
-Signals and Process Groups
-The shell installs handlers for SIGCHLD, SIGINT, and SIGTSTP. SIGCHLD is used to detect child state changes so that completed jobs can be marked as Done. SIGINT and SIGTSTP are also handled so that pipeline process groups can be signaled appropriately when a foreground pipeline is interrupted or stopped. Process groups are critical here: by grouping related processes together, the shell can send signals to an entire job instead of just one PID.  
-Purpose of This Implementation
-This code is meant to show how a shell bridges user input and the operating system. A user types a command, the shell interprets it, spawns child processes, configures file descriptors, manages job states, and arbitrates access to the terminal. In other words, the project is not just about “running commands,” but about exposing the process-management and terminal-control mechanisms that normal shells hide from users.  
-Current Limitations
-This version is intentionally centered on the lab requirements rather than full shell compatibility. Parsing assumes whitespace-separated tokens, only one pipe is supported, and the built-ins are limited to jobs, fg, and bg, which is consistent with the project restrictions. The code also stores job metadata in a way that is sufficient for the assignment but could be improved for richer command history and more exact terminal behavior.  
-In addition, some implementation areas would need to be hardened for a production-quality shell. Examples include stricter parser validation, more robust memory management, safer signal handling patterns, and fuller support for shell syntax such as quoting, append redirection, and multi-stage pipelines. These are natural next steps rather than failures of the current educational design. 
-Future Work
-The biggest next step is to generalize the pipeline implementation from a fixed two-command model into an arbitrary-length pipeline model. Instead of storing a single pipe boundary and a single piped command array, the parser should build a dynamic array of command objects, where each command stores its own argument list and any redirections associated with that stage. Once the input is represented that way, the shell can create N - 1 pipes for N commands and fork one child per stage in a loop. Each stage would connect its standard input to the previous pipe’s read end and its standard output to the next pipe’s write end, except for the first and last stages, which would keep normal input or output unless redirected. All children in the pipeline should be placed into the same process group so the entire chain can be stopped, resumed, or killed together.
-A second major improvement would be a more complete parser. A fuller shell should support quoted strings, escaped whitespace, append redirection with >>, multiple pipes, and eventually shell built-ins such as cd, pwd, exit, history, export, and unset. The current parser is intentionally simple and based on whitespace tokenization, which is fine for this project but not sufficient for a real terminal experience.  
-Another important area is signal safety and job-table synchronization. A more mature design would minimize the amount of work done directly inside signal handlers and would instead use safer synchronization patterns so that job updates happen in a controlled place in the main loop. This would make the shell more reliable under rapid child exits, repeated background jobs, and frequent stop/resume events. 
-Finally, the user experience could be improved by integrating readline or an equivalent line editor for history and editing support, improving error messages, and building a formal test suite that covers redirection, job control, pipeline behavior, invalid commands, and terminal signal scenarios. Together, these changes would move yash from a successful course shell into a more realistic terminal environment.  
-Example Direction for Multi-Pipe Support
-A clean design for supporting three or more pipes would look like this:
+# Yash — Yet Another Shell
 
+## Overview
 
-Parse the command line into a list of command stages separated by |.
+**Yash** is a simplified Unix-style shell written in C for the EE461S Operating Systems shell project.
+The goal of this project is to build a working command-line interpreter that demonstrates core operating system concepts such as:
 
+* process creation with `fork()`
+* program execution with `execvp()`
+* file descriptor manipulation with `dup2()`
+* inter-process communication with `pipe()`
+* signal handling
+* process groups and terminal control
+* basic job control with `jobs`, `fg`, and `bg`
 
-For N stages, allocate N - 1 pipes.
+This shell is not intended to be a full replacement for `bash`, but rather an educational implementation of the most important shell mechanisms.
 
+---
 
-Fork N children in a loop.
+## Features Implemented
 
+This shell currently supports:
 
-In child i, connect input from pipe i - 1 if i > 0, and connect output to pipe i if i < N - 1.
+* Executing external commands using `execvp()`
+* Searching the `PATH` environment variable for executables
+* Input redirection using `<`
+* Output redirection using `>`
+* Error redirection using `2>`
+* Background execution using `&`
+* A single pipe using `|`
+* Basic job control:
 
+  * `jobs`
+  * `fg`
+  * `bg`
+* Signal handling for:
 
-Apply per-stage redirections before calling execvp.
+  * `SIGCHLD`
+  * `SIGINT`
+  * `SIGTSTP`
+* Foreground terminal control using process groups and `tcsetpgrp()`
 
+---
 
-Put every stage into the same process group so the pipeline behaves like one foreground or background job.
+## Purpose
 
+The purpose of this project is to show how a shell works internally.
 
-In the parent, close all pipe file descriptors and wait on the pipeline as one job.
+When a user types a command, the shell must:
 
+1. read the input line
+2. parse the command and detect special symbols
+3. create child processes
+4. redirect input/output when requested
+5. manage foreground and background execution
+6. handle stopped and resumed jobs
+7. return terminal control back to the shell when appropriate
 
-If you want, I can turn this into a cleaner “submission-ready” README with a more polished tone and a short usage section.
+This project focuses on implementing those operating system concepts directly in C.
+
+---
+
+## How the Code Works
+
+## 1. Main Shell Loop
+
+The shell runs inside an infinite loop in `main()`.
+
+Each iteration:
+
+* prints the prompt `# `
+* reads one line of input using `getline()`
+* tokenizes the input using `strtok_r()`
+* checks for built-in commands like `jobs`, `fg`, and `bg`
+* otherwise executes the parsed command as either:
+
+  * a normal command
+  * a background command
+  * a piped command
+
+This loop acts as the control center for the shell.
+
+---
+
+## 2. Parsing Logic
+
+The command line is parsed in two passes:
+
+### First pass
+
+The code counts how many tokens are present so it can allocate enough memory for `argv`.
+
+### Second pass
+
+The code stores each token into `argv` while also detecting special shell operators such as:
+
+* `<`
+* `>`
+* `2>`
+* `|`
+* `&`
+
+During this step, the shell records:
+
+* whether input, output, or error redirection is requested
+* whether the command should run in the background
+* whether the command contains a pipe
+* where the left and right sides of the pipeline begin and end
+
+The result is a parsed command structure represented through arrays and index markers.
+
+---
+
+## 3. Executing Normal Commands
+
+If the command is not built-in and does not contain a pipe, the shell creates a child process using `fork()`.
+
+### In the child process
+
+The child:
+
+* creates a new process group with `setpgid(0, 0)`
+* applies redirections using `open()` and `dup2()`
+* calls `execvp()` to replace itself with the requested program
+
+### In the parent process
+
+The parent:
+
+* places the child in its own process group
+* either waits for it if it is a foreground job
+* or records it in the jobs list if it is a background job
+
+Foreground jobs temporarily receive terminal control using `tcsetpgrp()` so that `Ctrl-C` and `Ctrl-Z` affect the job rather than the shell.
+
+---
+
+## 4. File Redirection
+
+The shell supports:
+
+* `<` for input redirection
+* `>` for standard output redirection
+* `2>` for standard error redirection
+
+Redirection is handled in the child process before calling `execvp()`.
+
+For example:
+
+```bash
+cat < input.txt
+echo hello > out.txt
+wc fakefile.txt 2> err.txt
+```
+
+This is implemented by:
+
+* opening the file with `open()`
+* replacing the desired file descriptor using `dup2()`
+* closing the original file descriptor afterward
+
+---
+
+## 5. Pipe Implementation
+
+The current shell supports **one pipe maximum**.
+
+For a piped command like:
+
+```bash
+cat file.txt | wc
+```
+
+the shell:
+
+1. creates a pipe with `pipe(pipefd)`
+2. forks the left child
+3. forks the right child
+4. connects:
+
+   * the left child’s `stdout` to the pipe write end
+   * the right child’s `stdin` to the pipe read end
+5. places both children into the same process group
+
+This design allows the two commands in the pipeline to behave as one job.
+
+---
+
+## 6. Job Control Implementation
+
+Job control is implemented using a singly linked list.
+
+Each job is stored in a `Job` struct:
+
+```c
+typedef struct Job {
+    char *name;
+    int jobID;
+    pid_t pID;
+    char *status;
+    int background;
+    struct Job *next;
+} Job;
+```
+
+Each node stores:
+
+* the command name
+* a shell-assigned job number
+* the process ID
+* the job status (`Running`, `Stopped`, or `Done`)
+* whether it is a background job
+* a pointer to the next job
+
+### Job helper functions
+
+The shell uses several helper functions to manage jobs:
+
+* `add()` — adds a job to the linked list
+* `removenode()` — removes a job by PID
+* `updatenode()` — updates a job’s status
+* `found()` — checks whether a job already exists
+* `printList()` — prints the jobs table
+* `fg_call()` — resumes the current job in the foreground
+* `bg_call()` — resumes the current job in the background
+
+Jobs are inserted at the head of the list so the most recent job is easy to access.
+
+---
+
+## 7. Built-In Commands
+
+### `jobs`
+
+Prints the current jobs table, including:
+
+* job number
+* current marker (`+` or `-`)
+* job status
+* original command
+
+### `fg`
+
+Brings the most recent stopped or background job to the foreground.
+
+This involves:
+
+* sending `SIGCONT` when needed
+* giving terminal control to that job
+* waiting for it to finish or stop again
+
+### `bg`
+
+Resumes the most recent stopped job in the background by sending `SIGCONT`.
+
+---
+
+## 8. Signal Handling
+
+The shell installs handlers for:
+
+* `SIGCHLD`
+* `SIGINT`
+* `SIGTSTP`
+
+### `SIGCHLD`
+
+Used to detect background child state changes and update job statuses.
+
+### `SIGINT`
+
+Used to forward interrupt behavior to the active foreground pipeline when needed.
+
+### `SIGTSTP`
+
+Used to stop foreground pipeline jobs and add or update them in the job table.
+
+Signal handling is a key part of job control because it allows the shell to react when child processes stop, continue, or terminate.
+
+---
+
+## Build Instructions
+
+Compile the shell with:
+
+```bash
+gcc -Wall -Wextra -o yash yash.c
+```
+
+If your file has a different name, replace `yash.c` with your source file name.
+
+Run it with:
+
+```bash
+./yash
+```
+
+---
+
+## Example Usage
+
+### Run a normal command
+
+```bash
+# ls
+```
+
+### Output redirection
+
+```bash
+# echo hello > out.txt
+```
+
+### Input redirection
+
+```bash
+# cat < out.txt
+```
+
+### Error redirection
+
+```bash
+# wc fakefile.txt 2> err.txt
+```
+
+### Background job
+
+```bash
+# xeyes &
+```
+
+### Stop a job
+
+Run a foreground job, then press:
+
+```text
+Ctrl-Z
+```
+
+### View jobs
+
+```bash
+# jobs
+```
+
+### Resume in background
+
+```bash
+# bg
+```
+
+### Resume in foreground
+
+```bash
+# fg
+```
+
+### Single pipe
+
+```bash
+# cat file.txt | wc
+```
+
+---
+
+## Current Limitations
+
+This shell is intentionally limited to the project scope and is **not** a full terminal.
+
+Current limitations include:
+
+* only one pipe is supported
+* no support for quoted strings or escaped whitespace
+* no append redirection (`>>`)
+* no support for shell built-ins such as:
+
+  * `cd`
+  * `history`
+  * `export`
+  * `unset`
+* no support for complex shell grammar
+* no support for multiple pipelines in a single command
+* no advanced input editing or command history
+
+These limitations are expected for a simplified educational shell.
+
+---
+
+## Future Work
+
+A major next step would be to extend the shell into a more complete terminal by supporting **three or more pipes**.
+
+Right now, the pipeline logic is hardcoded for exactly two commands:
+
+* one left command
+* one right command
+* one `pipefd[2]`
+
+That works for a single `|`, but not for commands like:
+
+```bash
+cat file.txt | grep hello | wc
+```
+
+### Planned improvement for multi-pipe support
+
+To support an arbitrary number of pipes, the shell would need to be redesigned so that:
+
+1. the parser splits the command line into **N command stages**
+2. the shell creates **N - 1 pipes**
+3. the shell forks **N children**
+4. each child connects to the correct input/output pipe ends
+5. all children in the pipeline are placed into the same process group
+6. the parent closes all unused pipe file descriptors
+7. the full pipeline is managed as one job
+
+This would allow commands such as:
+
+```bash
+cat file.txt | grep hello | sort | uniq | wc
+```
+
+to run correctly.
+
+### Other future improvements
+
+Additional future work could include:
+
+* support for `>>` append redirection
+* support for quoted arguments
+* support for escaped spaces
+* support for shell built-ins such as `cd`
+* support for command history
+* improved signal-safe job table updates
+* more robust memory management
+* cleaner parser abstraction
+* improved error handling
+* automated tests for shell behavior
+
+These additions would make the shell behave more like a real Unix terminal while still preserving the educational value of the project.
+
+---
+
+## Educational Takeaways
+
+This project demonstrates several important operating systems concepts in practice:
+
+* how shells launch processes
+* how Unix file descriptors are redirected
+* how inter-process communication works with pipes
+* how signals affect parent and child processes
+* how process groups allow terminal job control
+* how a shell keeps track of running and stopped jobs
+
+Building this shell helped reinforce the connection between C programming and operating system behavior.
+
+---
+
+## Summary
+
+Yash is a simplified shell that implements the core mechanisms behind command execution, redirection, pipelines, and job control in Unix-like systems. Although it currently supports only a subset of shell features, it provides a strong foundation for understanding how terminals work internally and can be extended further into a more complete shell with support for multi-stage pipelines and richer parsing.
